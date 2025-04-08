@@ -24,9 +24,9 @@ async def fetch_bus_stops(route_id):
         go_button = await page.query_selector("a.stationlist-go")
         if go_button:
             await go_button.click()
-            await page.wait_for_selector("#GoDirectionRoute li .auto-list-stationlist", timeout=15000)  # 等待去程資料載入
+            await page.wait_for_timeout(5000)  # 等待 5 秒，確保資料完全載入
             go_direction = await page.query_selector("#GoDirectionRoute")
-            go_stops = await go_direction.query_selector_all("li .auto-list-stationlist") if go_direction else []
+            go_stops = await fetch_with_retry(page, "#GoDirectionRoute li .auto-list-stationlist")
             go_results = await extract_stops(go_stops, "去程")
             all_results.extend(go_results)
         else:
@@ -36,9 +36,9 @@ async def fetch_bus_stops(route_id):
         return_button = await page.query_selector("a.stationlist-come")
         if return_button:
             await return_button.click()
-            await page.wait_for_selector("#BackDirectionRoute li .auto-list-stationlist", timeout=15000)  # 等待返程資料載入
+            await page.wait_for_timeout(5000)  # 等待 5 秒，確保資料完全載入
             return_direction = await page.query_selector("#BackDirectionRoute")
-            return_stops = await return_direction.query_selector_all("li .auto-list-stationlist") if return_direction else []
+            return_stops = await fetch_with_retry(page, "#BackDirectionRoute li .auto-list-stationlist")
             return_results = await extract_stops(return_stops, "返程")
             all_results.extend(return_results)
         else:
@@ -51,6 +51,18 @@ async def fetch_bus_stops(route_id):
 
         print(f"資料已成功輸出至 bus_stops_{route_id}.csv")
         return all_results
+
+
+async def fetch_with_retry(page, selector, retries=3):
+    for i in range(retries):
+        try:
+            await page.wait_for_selector(selector, timeout=15000)
+            return await page.query_selector_all(selector)
+        except Exception as e:
+            print(f"嘗試第 {i+1} 次失敗，重試中...")
+            await page.wait_for_timeout(2000)  # 等待 2 秒後重試
+    print("多次嘗試後仍無法獲取資料。")
+    return []
 
 
 async def extract_stops(stops, direction):
@@ -82,7 +94,7 @@ async def extract_stops(stops, direction):
 
         results.append({
             "方向": direction,
-            "公車到達時間": status_text.strip(),
+            "公車到達時間": status_text.strip() if status_text.strip() else "無資料",
             "車站序號": number_text.strip(),
             "車站名稱": name_text.strip(),
             "車站編號": stop_id_value.strip(),
